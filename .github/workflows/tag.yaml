@@ -1,0 +1,80 @@
+name: Tag sync
+on:
+  push:
+    branch: master
+
+env:
+  APP_ID: 164400
+  APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+
+jobs:
+  init:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.result }}
+    steps:
+      - name: install depends for load scripts
+        run: |
+          npm install @octokit/rest
+      - name: Matrix files
+        uses: actions/github-script@v6
+        id: matrix
+        env:
+          base: ${{ github.event.before }}
+          head: ${{ github.event.after }}
+        with:
+          script: |
+            const { base, head } = process.env;
+            const { Octokit } = require("@octokit/rest");
+            const octokit = new Octokit()
+            const changedFiles = await octokit.rest.repos.compareCommits({
+              ...context.repo,
+              base,
+              head,
+            });
+            const files = changedFiles.data.files.map(ele => ele.filename);
+            console.log(files)
+            return JSON.stringify(files.filter(item => {
+                if (!item.startsWith('tags')) {
+                    return false;
+                }
+                return 'json' === item.split('.')[item.split('.').length -1];
+            }))
+          result-encoding: string
+  Tag:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    needs: [ init ]
+    if: ${{ needs.init.outputs.matrix != '[]' && needs.init.outputs.matrix != '' }}
+    strategy:
+      matrix:
+        pkg: ${{fromJson(needs.init.outputs.matrix)}}
+    steps:
+      - uses: actions/checkout@v3
+      - run: |
+          npm install tag-syncer@1.2.0
+          npm install @octokit/rest
+      - name: Create tag
+        uses: actions/github-script@v6
+        env:
+          file: ${{ matrix.pkg }}
+        with:
+          script: |
+            const { Tag, GetToken, yamlLoad } = require("tag-syncer");
+            const path = require('path');
+            const { Octokit } = require("@octokit/rest");
+            const { file, APP_ID, APP_PRIVATE_KEY } = process.env;
+            const app = {
+              APP_ID,
+              APP_PRIVATE_KEY
+            };
+            const repo = {
+                owner: context.payload.organization.login,
+                repo: path.basename(path.resolve(file), '.json')
+            };
+            const octokit = new Octokit({
+              auth: await GetToken(app, repo)
+            });
+            const { sha, tag, author, email, description } = yamlLoad(file).version;
+            console.log(repo)
+            //await Tag(octokit, repo.owner, repo.repo, sha, tag, description, author, email);
