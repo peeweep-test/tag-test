@@ -77,4 +77,4 @@ jobs:
             });
             const { sha, tag, author, email, description } = yamlLoad(file).version;
             console.log(repo)
-            //await Tag(octokit, repo.owner, repo.repo, sha, tag, description, author, email);
+            await Tag(octokit, repo.owner, repo.repo, sha, tag, description, author, email);
